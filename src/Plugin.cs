@@ -29,33 +29,6 @@ sealed class Plugin : BaseUnityPlugin
         return Vector2.Lerp(player.firstChunk.pos, player.bodyChunks[1].pos, 0.35f) + new Vector2(0, 0.7f * player.firstChunk.rad);
     }
 
-    private AnimationStage Stage(Player self, Player reviving)
-    {
-        int animTime = Data(self).animTime;
-        if (animTime < 0) {
-            return AnimationStage.None;
-        }
-        if (animTime < 1) {
-            return AnimationStage.Prepared;
-        }
-        if (Data(reviving).compressionsUntilBreath > 0) {
-            return (animTime % 20) switch {
-                < 3 => AnimationStage.CompressionDown,
-                < 6 => AnimationStage.CompressionUp,
-                _ => AnimationStage.CompressionRest
-            };
-        }
-        // Compressions 10-13 are breaths
-        return (animTime % 80) switch {
-            < 20 => AnimationStage.BreathingIn,
-            < 23 => AnimationStage.MeetingHeads,
-            < 40 => AnimationStage.BreathingOut,
-            < 60 => AnimationStage.BreathingInAgain,
-            < 77 => AnimationStage.BreathingOutAgain,
-            _ => AnimationStage.MovingBack
-        };
-    }
-
     private static bool CanRevive(Player medic, Player reviving)
     {
         if (reviving.playerState.permaDead || !reviving.dead || reviving.grabbedBy.Count > 1 || reviving.Submersion > 0 || reviving.onBack != null
@@ -146,7 +119,6 @@ sealed class Plugin : BaseUnityPlugin
         
         if (Data(self).deaths > 1) {
             self.slugcatStats.malnourished = true;
-            self.slugcatStats.throwingSkill = 0;
         }
     }
 
@@ -269,7 +241,6 @@ sealed class Plugin : BaseUnityPlugin
             }
 
             data.StartCompression();
-
             self.AerobicIncrease(0.5f);
 
             revivingData.compressionsUntilBreath--;
@@ -294,11 +265,12 @@ sealed class Plugin : BaseUnityPlugin
                 < 30 => 3.5f,
                 _ => 1f
             };
+            if (data.compressionDepth > 4) self.Blink(6);
             revivingData.deathTime -= healing;
             revivingData.lastCompression = self.room.game.clock;
         }
 
-        AnimationStage stage = Stage(self, reviving);
+        AnimationStage stage = data.Stage();
 
         if (!self.playerState.isPup) {
             if (stage is AnimationStage.Prepared or AnimationStage.CompressionRest) {
@@ -341,11 +313,11 @@ sealed class Plugin : BaseUnityPlugin
             return;
         }
 
-        AnimationStage stage = Stage(self.player, reviving);
+        AnimationStage stage = data.Stage();
 
         if (stage == AnimationStage.None) return;
 
-        Vector2 starePos = stage is AnimationStage.Prepared or AnimationStage.CompressionDown or AnimationStage.CompressionUp or AnimationStage.CompressionRest or AnimationStage.MovingBack
+        Vector2 starePos = stage is AnimationStage.Prepared or AnimationStage.CompressionDown or AnimationStage.CompressionUp or AnimationStage.CompressionRest
             ? HeartPos(reviving)
             : reviving.firstChunk.pos + reviving.firstChunk.Rotation * 5;
 
@@ -361,9 +333,6 @@ sealed class Plugin : BaseUnityPlugin
                 graf.tail[0].vel.y += data.compressionDepth * 0.8f;
                 graf.tail[1].vel.y += data.compressionDepth * 0.2f;
             }
-        }
-        if (stage is AnimationStage.BreathingOut or AnimationStage.BreathingOutAgain) {
-            self.player.Blink(2);
         }
     }
 
@@ -387,7 +356,7 @@ sealed class Plugin : BaseUnityPlugin
             return;
         }
 
-        AnimationStage stage = Stage(player, reviving);
+        AnimationStage stage = data.Stage();
 
         if (stage == AnimationStage.None) return;
 
@@ -402,9 +371,6 @@ sealed class Plugin : BaseUnityPlugin
         }
         else if (stage == AnimationStage.CompressionUp) {
             self.pos = Vector2.Lerp(heartDown, heart, (data.animTime - 3) / 2f);
-        }
-        else if (stage == AnimationStage.BreathingIn) {
-            // TODO breathing smooch mwa or whatever
         }
     }
 }

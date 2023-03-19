@@ -13,4 +13,19 @@ sealed class PlayerData
     public void Unprepared() => animTime = -1;
     public void PreparedToGiveCpr() => animTime = 0;
     public void StartCompression() => animTime = 1;
+
+    public AnimationStage Stage()
+    {
+        if (animTime < 0) {
+            return AnimationStage.None;
+        }
+        if (animTime < 1) {
+            return AnimationStage.Prepared;
+        }
+        return (animTime % 20) switch {
+            < 3 => AnimationStage.CompressionDown,
+            < 6 => AnimationStage.CompressionUp,
+            _ => AnimationStage.CompressionRest
+        };
+    }
 }
