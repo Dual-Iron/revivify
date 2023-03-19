@@ -2,7 +2,8 @@
 
 enum AnimationStage
 {
-    Chill,
+    None,
+    Prepared,
 
     // -- Compressions --
     CompressionDown, // moving hands down on chest

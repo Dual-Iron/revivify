@@ -19,7 +19,6 @@ namespace Revivify;
 [BepInPlugin("com.dual.revivify", "Revivify", "1.0.0")]
 sealed class Plugin : BaseUnityPlugin
 {
-    static readonly Player.AnimationIndex ReviveAnimation = new("Revive", register: true);
     static readonly ConditionalWeakTable<Player, PlayerData> cwt = new();
     static PlayerData Data(Player p) => cwt.GetValue(p, _ => new());
 
@@ -27,41 +26,60 @@ sealed class Plugin : BaseUnityPlugin
 
     private static Vector2 HeartPos(Player player)
     {
-        return Vector2.Lerp(player.firstChunk.pos, player.bodyChunks[1].pos, 0.35f) + new Vector2(0, 0.8f * player.firstChunk.rad);
+        return Vector2.Lerp(player.firstChunk.pos, player.bodyChunks[1].pos, 0.35f) + new Vector2(0, 0.7f * player.firstChunk.rad);
     }
 
-    private static Vector2 HeartPosCompressed(Player player)
+    private AnimationStage Stage(Player self, Player reviving)
     {
-        return Vector2.Lerp(player.firstChunk.pos, player.bodyChunks[1].pos, 0.35f) + new Vector2(0, 0.1f * player.firstChunk.rad);
+        int animTime = Data(self).animTime;
+        if (animTime < 0) {
+            return AnimationStage.None;
+        }
+        if (animTime < 1) {
+            return AnimationStage.Prepared;
+        }
+        if (Data(reviving).compressionsUntilBreath > 0) {
+            return (animTime % 20) switch {
+                < 3 => AnimationStage.CompressionDown,
+                < 6 => AnimationStage.CompressionUp,
+                _ => AnimationStage.CompressionRest
+            };
+        }
+        // Compressions 10-13 are breaths
+        return (animTime % 80) switch {
+            < 20 => AnimationStage.BreathingIn,
+            < 23 => AnimationStage.MeetingHeads,
+            < 40 => AnimationStage.BreathingOut,
+            < 60 => AnimationStage.BreathingInAgain,
+            < 77 => AnimationStage.BreathingOutAgain,
+            _ => AnimationStage.MovingBack
+        };
     }
 
     private static bool CanRevive(Player medic, Player reviving)
     {
-        if (reviving.playerState.permaDead || !reviving.dead || reviving.grabbedBy.Count > 1 || reviving.Submersion > 0 || Data(reviving).DeadForReal
+        if (reviving.playerState.permaDead || !reviving.dead || reviving.grabbedBy.Count > 1 || reviving.Submersion > 0 || reviving.onBack != null
             || !medic.Consious || medic.grabbedBy.Count > 0 || medic.Submersion > 0 || medic.exhausted || medic.lungsExhausted || medic.gourmandExhausted) {
             return false;
         }
-        bool corpseStill = reviving.bodyChunks[0].ContactPoint.y < 0 && reviving.bodyChunks[1].ContactPoint.y < 0 
-            && (Data(medic).animationTime >= 40 || reviving.bodyChunks[0].vel.magnitude < 2 && reviving.bodyChunks[1].vel.magnitude < 2);
-        bool selfStill = medic.input[0].x == 0 && medic.input[0].y == 0 && medic.bodyChunks[1].ContactPoint.y < 0 && !medic.input[0].thrw && !medic.input[0].jmp;
-        bool bodymode = medic.bodyMode == Player.BodyModeIndex.Stand || medic.bodyMode == Player.BodyModeIndex.Crawl;
-        return corpseStill && selfStill && bodymode && medic.input[0].pckp;
+        bool corpseStill = reviving.IsTileSolid(0, 0, -1) && reviving.IsTileSolid(1, 0, -1) && reviving.bodyChunks[0].vel.magnitude < 6;
+        bool selfStill = medic.input.Take(10).All(i => i.x == 0 && i.y == 0 && !i.thrw && !i.jmp) && medic.bodyChunks[1].ContactPoint.y < 0;
+        return corpseStill && selfStill && medic.bodyMode == Player.BodyModeIndex.Stand;
     }
 
     private static void RevivePlayer(Player self)
     {
-        Data(self).died = true;
-        Data(self).death = 0;
+        Data(self).deaths++;
+        Data(self).deathTime = 0;
 
-        self.Stun(20);
+        self.stun = 5;
         self.lungsExhausted = true;
         self.exhausted = true;
         self.aerobicLevel = 1;
 
-        self.bodyChunks[0].vel += Custom.RNV() * 2;
-        self.bodyChunks[1].vel += Custom.RNV() * 2;
+        self.room.AddObject(new CreatureSpasmer(self, false, 20));
 
-        self.playerState.permanentDamageTracking = 0.5f;
+        self.playerState.permanentDamageTracking = Math.Min(0.9, Data(self).deaths * 0.3);
         self.playerState.alive = true;
         self.playerState.permaDead = false;
         self.dead = false;
@@ -96,23 +114,23 @@ sealed class Plugin : BaseUnityPlugin
     }
 
     private readonly Func<Func<Player, bool>, Player, bool> getMalnourished = (orig, self) => {
-        return orig(self) || Data(self).died;
+        return orig(self) || Data(self).deaths > 1;
     };
 
     private void UpdateLife(On.Player.orig_Update orig, Player self, bool eu)
     {
         orig(self, eu);
 
-        const int ticksToDie = 40 * 120; // 120 seconds
-        const int ticksToRevive = 40 * 7; // 10 seconds
+        const int ticksToDie = 40 * 30; // 30 seconds
+        const int ticksToRevive = 40 * 10; // 10 seconds
 
         if (self.dead) {
-            ref float death = ref Data(self).death;
+            ref float death = ref Data(self).deathTime;
 
-            if (death >= 0 && !self.grabbedBy.Any(g => g.grabber is Player p && Data(p).animationTime >= 40)) {
+            if (death > -0.1f) {
                 death += 1f / ticksToDie;
             }
-            if (death < 0 && self.dangerGrasp == null) {
+            if (death < -0.5f && self.dangerGrasp == null) {
                 death -= 1f / ticksToRevive;
             }
             if (death < -1) {
@@ -122,9 +140,11 @@ sealed class Plugin : BaseUnityPlugin
                     p.ThrowObject(self.grabbedBy[0].graspUsed, eu);
                 }
             }
+
+            death = Mathf.Clamp(death, -1, 1);
         }
         
-        if (Data(self).died) {
+        if (Data(self).deaths > 1) {
             self.slugcatStats.malnourished = true;
             self.slugcatStats.throwingSkill = 0;
         }
@@ -136,22 +156,12 @@ sealed class Plugin : BaseUnityPlugin
 
         orig(self, source, directionAndMomentum, hitChunk, hitAppendage, type, damage, stunBonus);
 
-        if (self is Player p && wasDead && p.dead && source?.owner is not Lizard && damage > 0) {
+        if (self is Player p && wasDead && p.dead && damage > 0) {
             PlayerData data = Data(p);
-            if (data.death < 0) {
-                data.death = 0;
+            if (data.deathTime < 0) {
+                data.deathTime = 0;
             }
-            if (self.abstractCreature.world.game.clock < data.lastHurt + 3 && damage > data.lastHurtAmount) {
-                data.death -= data.lastHurtAmount * 0.15f;
-                data.death += damage * 0.15f;
-                data.lastHurtAmount = damage;
-                Logger.LogDebug($"HURT {p.abstractCreature.ID.number} within cooldown! Damage was {damage}, new death progress is {data.death * 100:0.00} %");
-            }
-            else {
-                data.death += damage * 0.15f;
-                Logger.LogDebug($"HURT {p.abstractCreature.ID.number}! Damage was {damage}, new death progress is {data.death * 100:0.00} %");
-            }
-            data.lastHurt = self.abstractCreature.world.game.clock;
+            data.deathTime += damage * 0.34f;
         }
     }
 
@@ -165,20 +175,18 @@ sealed class Plugin : BaseUnityPlugin
         Vector2 pos1 = default, pos2 = default, vel1 = default, vel2 = default;
         Vector2 posH = default, posB = default, velH = default, velB = default;
 
-        if (Data(self).animationTime > 0) {
-            foreach (var grasp in self.grasps) {
-                if (grasp?.grabbed is Player p) {
-                    posH = self.bodyChunks[0].pos;
-                    posB = self.bodyChunks[1].pos;
-                    velH = self.bodyChunks[0].vel;
-                    velB = self.bodyChunks[1].vel;
+        foreach (var grasp in self.grasps) {
+            if (grasp?.grabbed is Player p && CanRevive(self, p)) {
+                posH = self.bodyChunks[0].pos;
+                posB = self.bodyChunks[1].pos;
+                velH = self.bodyChunks[0].vel;
+                velB = self.bodyChunks[1].vel;
 
-                    pos1 = p.bodyChunks[0].pos;
-                    pos2 = p.bodyChunks[1].pos;
-                    vel1 = p.bodyChunks[0].vel;
-                    vel2 = p.bodyChunks[1].vel;
-                    break;
-                }
+                pos1 = p.bodyChunks[0].pos;
+                pos2 = p.bodyChunks[1].pos;
+                vel1 = p.bodyChunks[0].vel;
+                vel2 = p.bodyChunks[1].vel;
+                break;
             }
         }
 
@@ -186,7 +194,7 @@ sealed class Plugin : BaseUnityPlugin
 
         if (pos1 != default) {
             foreach (var grasp in self.grasps) {
-                if (grasp?.grabbed is Player p) {
+                if (grasp?.grabbed is Player p && CanRevive(self, p)) {
                     self.bodyChunks[0].pos = posH;
                     self.bodyChunks[1].pos = posB;
                     self.bodyChunks[0].vel = velH;
@@ -222,22 +230,14 @@ sealed class Plugin : BaseUnityPlugin
         }
     }
 
-    // True to return
     private bool UpdateRevive(Player self, int grasp)
     {
         PlayerData data = Data(self);
 
         if (self.grasps[grasp]?.grabbed is not Player reviving || !CanRevive(self, reviving)) {
-            data.animationTime = 0;
+            data.Unprepared();
             return false;
         }
-
-        if (self.bodyMode == Player.BodyModeIndex.Crawl) {
-            self.standing = true;
-        }
-
-        self.animation = ReviveAnimation;
-        data.animationTime++;
 
         Vector2 heartPos = HeartPos(reviving);
         Vector2 targetHeadPos = heartPos + new Vector2(0, Mathf.Sign(self.room.gravity)) * 25;
@@ -245,39 +245,85 @@ sealed class Plugin : BaseUnityPlugin
         float headDist = (targetHeadPos - self.bodyChunks[0].pos).magnitude;
         float buttDist = (targetButtPos - self.bodyChunks[1].pos).magnitude;
 
-        AnimationStage stage = data.Stage();
-
-        if (stage == AnimationStage.Chill) {
-            self.bodyChunks[0].vel += Mathf.Min(headDist, 0.4f) * (targetHeadPos - self.bodyChunks[0].pos).normalized;
-            self.bodyChunks[1].vel += Mathf.Min(buttDist, 0.7f) * (targetButtPos - self.bodyChunks[1].pos).normalized;
+        if (data.animTime < 0 && (headDist > 22 || buttDist > 22)) {
+            return false;
         }
 
-        if (headDist > 30 || buttDist > 30) {
-            data.animationTime = 0;
-            return true;
-        }
+        self.bodyChunks[0].vel += Mathf.Min(headDist, 0.4f) * (targetHeadPos - self.bodyChunks[0].pos).normalized;
+        self.bodyChunks[1].vel += Mathf.Min(buttDist, 0.4f) * (targetButtPos - self.bodyChunks[1].pos).normalized;
 
-        if (stage is not AnimationStage.Chill and not AnimationStage.CompressionRest and not AnimationStage.MeetingHeads and not AnimationStage.MovingBack) {
-            ref float death = ref Data(reviving).death;
-            death -= 1 / 40f / 12f;
-            if (death > 0) {
-                death -= 1 / 40f / 12f; // Revive extra fast if closer to death
+        PlayerData revivingData = Data(reviving);
+        int difference = self.room.game.clock - revivingData.lastCompression;
+
+        if (data.animTime < 0) {
+            data.PreparedToGiveCpr();
+        }
+        else if (self.input[0].pckp && !self.input[1].pckp && difference > 4) {
+            if (self.slugOnBack != null) {
+                self.slugOnBack.interactionLocked = true;
+                self.slugOnBack.counter = 0;
             }
+
+            if (self.grasps[grasp].chunkGrabbed == 1) {
+                self.grasps[grasp].chunkGrabbed = 0;
+            }
+
+            data.StartCompression();
+
+            self.AerobicIncrease(0.5f);
+
+            revivingData.compressionsUntilBreath--;
+            if (revivingData.compressionsUntilBreath < 0) {
+                revivingData.compressionsUntilBreath = 1000;//(int)(8 + UnityEngine.Random.value * 5);
+            }
+
+            bool breathing = revivingData.compressionsUntilBreath == 0;
+            float healing = difference switch {
+                < 75 when breathing => -1 / 10f,
+                < 100 when breathing => 1 / 5f,
+                < 8 => -1 / 30f,
+                < 19 => 1 / 40f,
+                < 22 => 1 / 15f,
+                < 30 => 1 / 20f,
+                _ => 1 / 40f,
+            };
+            data.compressionDepth = difference switch {
+                < 8 => 0.2f,
+                < 19 => 1f,
+                < 22 => 4.5f,
+                < 30 => 3.5f,
+                _ => 1f
+            };
+            revivingData.deathTime -= healing;
+            revivingData.lastCompression = self.room.game.clock;
         }
+
+        AnimationStage stage = Stage(self, reviving);
 
         if (!self.playerState.isPup) {
-            if (stage is AnimationStage.Chill or AnimationStage.CompressionRest) {
-                self.bodyChunkConnections[0].distance = Mathf.Lerp(17, 14, data.animationTime / 40f);
+            if (stage is AnimationStage.Prepared or AnimationStage.CompressionRest) {
+                self.bodyChunkConnections[0].distance = 14;
             }
             if (stage is AnimationStage.CompressionDown) {
-                self.bodyChunkConnections[0].distance = 10;
+                self.bodyChunkConnections[0].distance = 13 - data.compressionDepth;
             }
             if (stage is AnimationStage.CompressionUp) {
-                self.bodyChunkConnections[0].distance = 10f + 4f * (data.animationTime % 20 - 3) / 2f;
+                self.bodyChunkConnections[0].distance = Mathf.Lerp(13 - data.compressionDepth, 15, (data.animTime - 3) / 2f);
             }
         }
 
-        return true;
+        if (data.animTime > 0) {
+            data.animTime++;
+        }
+        if (Data(reviving).compressionsUntilBreath > 0) {
+            if (data.animTime >= 20)
+                data.PreparedToGiveCpr();
+        }
+        else if (data.animTime >= 80) {
+            data.PreparedToGiveCpr();
+        }
+
+        return false;
     }
 
     private void PlayerGraphics_Update(On.PlayerGraphics.orig_Update orig, PlayerGraphics self)
@@ -286,18 +332,21 @@ sealed class Plugin : BaseUnityPlugin
 
         PlayerData data = Data(self.player);
 
-        if (self.malnourished < Mathf.Clamp01(data.death) && self.player.dead) {
-            self.malnourished = Mathf.Clamp01(data.death);
+        float visualDecay = Mathf.Max(Mathf.Clamp01(data.deathTime), Mathf.Min(2, data.deaths) * 0.3f);
+        if (self.malnourished < visualDecay) {
+            self.malnourished = visualDecay;
         }
 
-        AnimationStage stage = data.Stage();
-
-        if (data.animationTime == 0 || self.player.grasps.FirstOrDefault(g => g.grabbed is Player)?.grabbed is not Player reviving) {
+        if (self.player.grasps.FirstOrDefault(g => g?.grabbed is Player)?.grabbed is not Player reviving) {
             return;
         }
 
-        Vector2 starePos = data.Compression || stage == AnimationStage.MovingBack
-            ? HeartPosCompressed(reviving)
+        AnimationStage stage = Stage(self.player, reviving);
+
+        if (stage == AnimationStage.None) return;
+
+        Vector2 starePos = stage is AnimationStage.Prepared or AnimationStage.CompressionDown or AnimationStage.CompressionUp or AnimationStage.CompressionRest or AnimationStage.MovingBack
+            ? HeartPos(reviving)
             : reviving.firstChunk.pos + reviving.firstChunk.Rotation * 5;
 
         self.LookAtPoint(starePos, 10000f);
@@ -305,12 +354,12 @@ sealed class Plugin : BaseUnityPlugin
         if (stage is AnimationStage.CompressionDown) {
             // Push reviving person's head and butt upwards
             PlayerGraphics graf = G(reviving);
-            graf.head.vel.y += 0.5f;
-            graf.NudgeDrawPosition(0, new(0, 1f));
+            graf.head.vel.y += data.compressionDepth * 0.5f;
+            graf.NudgeDrawPosition(0, new(0, data.compressionDepth * 0.5f));
             if (graf.tail.Length > 1) {
                 graf.tail[0].pos.y += 1;
-                graf.tail[0].vel.y += 1;
-                graf.tail[1].vel.y += 0.5f;
+                graf.tail[0].vel.y += data.compressionDepth * 0.8f;
+                graf.tail[1].vel.y += data.compressionDepth * 0.2f;
             }
         }
         if (stage is AnimationStage.BreathingOut or AnimationStage.BreathingOutAgain) {
@@ -322,7 +371,7 @@ sealed class Plugin : BaseUnityPlugin
     {
         orig(self, sLeaser, rCam, timeStacker, camPos);
 
-        if (sLeaser.sprites[9].element.name == "FaceDead" && Data(self.player).death < -0.2f) {
+        if (sLeaser.sprites[9].element.name == "FaceDead" && Data(self.player).deathTime < -0.6f) {
             sLeaser.sprites[9].element = Futile.atlasManager.GetElementWithName("FaceStunned");
         }
     }
@@ -333,27 +382,29 @@ sealed class Plugin : BaseUnityPlugin
 
         Player player = ((PlayerGraphics)self.owner).player;
         PlayerData data = Data(player);
-        AnimationStage stage = data.Stage();
 
-        if (data.animationTime == 0 || player.grasps.First(g => g.grabbed is Player).grabbed is not Player reviving) {
+        if (player.grasps.FirstOrDefault(g => g?.grabbed is Player)?.grabbed is not Player reviving) {
             return;
         }
 
-        Vector2 offset = new(self.limbNumber == 0 ? -2 : 2, 0);
-        Vector2 heart = HeartPos(reviving) + offset;
-        Vector2 heartDown = HeartPosCompressed(reviving) + offset;
+        AnimationStage stage = Stage(player, reviving);
 
-        if (stage is AnimationStage.Chill or AnimationStage.CompressionRest) {
+        if (stage == AnimationStage.None) return;
+
+        Vector2 heart = HeartPos(reviving);
+        Vector2 heartDown = HeartPos(reviving) - new Vector2(0, data.compressionDepth);
+
+        if (stage is AnimationStage.Prepared or AnimationStage.CompressionRest) {
             self.pos = heart;
         }
         else if (stage == AnimationStage.CompressionDown) {
             self.pos = heartDown;
         }
         else if (stage == AnimationStage.CompressionUp) {
-            self.pos = Vector2.Lerp(heartDown, heart, (data.animationTime % 20 - 3) / 2f);
+            self.pos = Vector2.Lerp(heartDown, heart, (data.animTime - 3) / 2f);
         }
         else if (stage == AnimationStage.BreathingIn) {
-
+            // TODO breathing smooch mwa or whatever
         }
     }
 }
