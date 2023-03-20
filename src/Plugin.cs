@@ -17,7 +17,6 @@ using UnityEngine;
 namespace Revivify;
 
 // TODO: make it look like the being-revived player is on their back
-// TODO: let slugpups revive you
 
 [BepInPlugin("com.dual.revivify", "Revivify", "0.1.0")]
 sealed class Plugin : BaseUnityPlugin
@@ -34,7 +33,7 @@ sealed class Plugin : BaseUnityPlugin
 
     private static bool CanRevive(Player medic, Player reviving)
     {
-        if (reviving.playerState.permaDead || !reviving.dead || reviving.grabbedBy.Count > 1 || reviving.Submersion > 0 || reviving.onBack != null
+        if (reviving.playerState.permaDead || !reviving.dead || reviving.grabbedBy.Count > 1 || reviving.Submersion > 0 || reviving.onBack != null || Data(reviving).Expired
             || !medic.Consious || medic.grabbedBy.Count > 0 || medic.Submersion > 0 || medic.exhausted || medic.lungsExhausted || medic.gourmandExhausted) {
             return false;
         }
@@ -48,9 +47,8 @@ sealed class Plugin : BaseUnityPlugin
         Data(self).deaths++;
         Data(self).deathTime = 0;
 
-        self.stun = 10;
-        self.airInLungs = 0.7f;
-        self.lungsExhausted = true;
+        self.stun = 20;
+        self.airInLungs = 0.1f;
         self.exhausted = true;
         self.aerobicLevel = 1;
 
@@ -70,6 +68,8 @@ sealed class Plugin : BaseUnityPlugin
         On.RainWorld.OnModsInit += RainWorld_OnModsInit;
 
         new Hook(typeof(Player).GetMethod("get_Malnourished"), getMalnourished);
+        On.Player.CanIPutDeadSlugOnBack += Player_CanIPutDeadSlugOnBack;
+        On.Player.ctor += Player_ctor;
         On.Player.Die += Player_Die;
         On.Player.Update += UpdatePlr;
         On.Creature.Violence += ReduceLife;
@@ -93,6 +93,20 @@ sealed class Plugin : BaseUnityPlugin
         return orig(self) || Data(self).deaths >= Options.DeathsUntilExhaustion.Value;
     };
 
+    private bool Player_CanIPutDeadSlugOnBack(On.Player.orig_CanIPutDeadSlugOnBack orig, Player self, Player pickUpCandidate)
+    {
+        return orig(self, pickUpCandidate) || (pickUpCandidate != null && !Data(pickUpCandidate).Expired);
+    }
+
+    private void Player_ctor(On.Player.orig_ctor orig, Player self, AbstractCreature abstractCreature, World world)
+    {
+        orig(self, abstractCreature, world);
+
+        if (self.dead) {
+            Data(self).expireTime = int.MaxValue;
+        }
+    }
+
     private void Player_Die(On.Player.orig_Die orig, Player self)
     {
         if (!self.dead && (self.drown > 0.25f || self.rainDeath > 0.25f)) {
@@ -108,14 +122,29 @@ sealed class Plugin : BaseUnityPlugin
         const int ticksToDie = 40 * 30; // 30 seconds
         const int ticksToRevive = 40 * 10; // 10 seconds
 
+        if (self.isSlugpup && Data(self).deaths >= Options.DeathsUntilComa.Value) {
+            self.stun = 100;
+        }
+
         if (self.dead) {
             ref float death = ref Data(self).deathTime;
+
+            if (death > 0.1f) {
+                Data(self).expireTime++;
+            }
+            else {
+                Data(self).expireTime = 0;
+            }
 
             if (death > -0.1f) {
                 death += 1f / ticksToDie;
             }
             if (death < -0.5f && self.dangerGrasp == null) {
                 death -= 1f / ticksToRevive;
+
+                if (self.room?.shelterDoor != null && self.room.shelterDoor.IsClosing) {
+                    death = -1.1f;
+                }
             }
             if (death < -1) {
                 RevivePlayer(self);
@@ -267,6 +296,9 @@ sealed class Plugin : BaseUnityPlugin
             if (self.grasps[grasp].chunkGrabbed == 1) {
                 self.grasps[grasp].chunkGrabbed = 0;
             }
+
+            if (reviving.AI != null)
+                reviving.State.socialMemory.GetOrInitiateRelationship(self.abstractCreature.ID).InfluenceLike(10f);
 
             data.StartCompression();
             self.AerobicIncrease(0.5f);
