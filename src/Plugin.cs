@@ -285,60 +285,7 @@ sealed class Plugin : BaseUnityPlugin
             data.PreparedToGiveCpr();
         }
         else if (self.input[0].pckp && !self.input[1].pckp && difference > 4) {
-            if (self.slugOnBack != null) {
-                self.slugOnBack.interactionLocked = true;
-                self.slugOnBack.counter = 0;
-            }
-
-            if (self.grasps[grasp].chunkGrabbed == 1) {
-                self.grasps[grasp].chunkGrabbed = 0;
-            }
-
-            if (reviving.AI != null) {
-                reviving.State.socialMemory.GetOrInitiateRelationship(self.abstractCreature.ID).InfluenceLike(10f);
-                reviving.State.socialMemory.GetOrInitiateRelationship(self.abstractCreature.ID).InfluenceTempLike(10f);
-                reviving.State.socialMemory.GetOrInitiateRelationship(self.abstractCreature.ID).InfluenceKnow(0.5f);
-            }
-
-            data.StartCompression();
-            self.AerobicIncrease(0.5f);
-
-            revivingData.compressionsUntilBreath--;
-            if (revivingData.compressionsUntilBreath < 0) {
-                revivingData.compressionsUntilBreath = 1000;//(int)(8 + UnityEngine.Random.value * 5);
-            }
-
-            bool breathing = revivingData.compressionsUntilBreath == 0;
-            float healing = difference switch {
-                < 75 when breathing => -1 / 10f,
-                < 100 when breathing => 1 / 5f,
-                < 8 => -1 / 30f,
-                < 19 => 1 / 40f,
-                < 22 => 1 / 15f,
-                < 30 => 1 / 20f,
-                _ => 1 / 40f,
-            };
-            data.compressionDepth = difference switch {
-                < 8 => 0.2f,
-                < 19 => 1f,
-                < 22 => 4.5f,
-                < 30 => 3.5f,
-                _ => 1f
-            };
-            if (data.compressionDepth > 4) self.Blink(6);
-            revivingData.deathTime -= healing * Options.ReviveSpeed.Value;
-            revivingData.lastCompression = self.room.game.clock;
-
-            if (revivingData.waterInLungs > 0) {
-                revivingData.waterInLungs -= healing * 0.34f;
-
-                float amount = data.compressionDepth * 0.5f + UnityEngine.Random.value - 0.5f;
-                for (int i = 0; i < amount; i++) {
-                    Vector2 dir = Custom.RotateAroundOrigo(new Vector2(0, 1), -30f + 60f * UnityEngine.Random.value);
-
-                    reviving.room.AddObject(new WaterDrip(reviving.firstChunk.pos + dir * 10, dir * (2 + 4 * UnityEngine.Random.value), true));
-                }
-            }
+            Compression(self, grasp, data, reviving, revivingData, difference);
         }
 
         AnimationStage stage = data.Stage();
@@ -365,6 +312,70 @@ sealed class Plugin : BaseUnityPlugin
         }
 
         return false;
+    }
+
+    private static void Compression(Player self, int grasp, PlayerData data, Player reviving, PlayerData revivingData, int difference)
+    {
+        if (self.slugOnBack != null) {
+            self.slugOnBack.interactionLocked = true;
+            self.slugOnBack.counter = 0;
+        }
+
+        if (self.grasps[grasp].chunkGrabbed == 1) {
+            self.grasps[grasp].chunkGrabbed = 0;
+        }
+
+        if (reviving.AI != null) {
+            reviving.State.socialMemory.GetOrInitiateRelationship(self.abstractCreature.ID).InfluenceLike(10f);
+            reviving.State.socialMemory.GetOrInitiateRelationship(self.abstractCreature.ID).InfluenceTempLike(10f);
+            reviving.State.socialMemory.GetOrInitiateRelationship(self.abstractCreature.ID).InfluenceKnow(0.5f);
+        }
+
+        for (int i = reviving.abstractCreature.stuckObjects.Count - 1; i >= 0; i--) {
+            if (reviving.abstractCreature.stuckObjects[i] is AbstractPhysicalObject.AbstractSpearStick stick && stick.A.realizedObject is Spear s) {
+                s.ChangeMode(Weapon.Mode.Free);
+            }
+        }
+
+        data.StartCompression();
+        self.AerobicIncrease(0.5f);
+
+        revivingData.compressionsUntilBreath--;
+        if (revivingData.compressionsUntilBreath < 0) {
+            revivingData.compressionsUntilBreath = 1000;//(int)(8 + UnityEngine.Random.value * 5);
+        }
+
+        bool breathing = revivingData.compressionsUntilBreath == 0;
+        float healing = difference switch {
+            < 75 when breathing => -1 / 10f,
+            < 100 when breathing => 1 / 5f,
+            < 8 => -1 / 30f,
+            < 19 => 1 / 40f,
+            < 22 => 1 / 15f,
+            < 30 => 1 / 20f,
+            _ => 1 / 40f,
+        };
+        data.compressionDepth = difference switch {
+            < 8 => 0.2f,
+            < 19 => 1f,
+            < 22 => 4.5f,
+            < 30 => 3.5f,
+            _ => 1f
+        };
+        if (data.compressionDepth > 4) self.Blink(6);
+        revivingData.deathTime -= healing * Options.ReviveSpeed.Value;
+        revivingData.lastCompression = self.room.game.clock;
+
+        if (revivingData.waterInLungs > 0) {
+            revivingData.waterInLungs -= healing * 0.34f;
+
+            float amount = data.compressionDepth * 0.5f + UnityEngine.Random.value - 0.5f;
+            for (int i = 0; i < amount; i++) {
+                Vector2 dir = Custom.RotateAroundOrigo(new Vector2(0, 1), -30f + 60f * UnityEngine.Random.value);
+
+                reviving.room.AddObject(new WaterDrip(reviving.firstChunk.pos + dir * 10, dir * (2 + 4 * UnityEngine.Random.value), true));
+            }
+        }
     }
 
     private void PlayerGraphics_Update(On.PlayerGraphics.orig_Update orig, PlayerGraphics self)
