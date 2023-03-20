@@ -16,7 +16,7 @@ using UnityEngine;
 
 namespace Revivify;
 
-[BepInPlugin("com.dual.revivify", "Revivify", "0.1.0")]
+[BepInPlugin("com.dual.revivify", "Revivify", "0.2.0")]
 sealed class Plugin : BaseUnityPlugin
 {
     static readonly ConditionalWeakTable<Player, PlayerData> cwt = new();
