@@ -16,7 +16,7 @@ using UnityEngine;
 
 namespace Revivify;
 
-[BepInPlugin("com.dual.revivify", "Revivify", "0.3.0")]
+[BepInPlugin("com.dual.revivify", "Revivify", "0.4.0")]
 sealed class Plugin : BaseUnityPlugin
 {
     static readonly ConditionalWeakTable<Player, PlayerData> cwt = new();
@@ -158,10 +158,9 @@ sealed class Plugin : BaseUnityPlugin
 
             G(self).breath = Mathf.PI;
 
-            self.Stun(5);
+            self.Stun(20);
             self.Blink(10);
             self.airInLungs = 0;
-            self.lungsExhausted = true;
             self.firstChunk.pos += self.firstChunk.Rotation * 3;
 
             int amount = UnityEngine.Random.Range(3, 6);
@@ -295,8 +294,11 @@ sealed class Plugin : BaseUnityPlugin
                 self.grasps[grasp].chunkGrabbed = 0;
             }
 
-            if (reviving.AI != null)
+            if (reviving.AI != null) {
                 reviving.State.socialMemory.GetOrInitiateRelationship(self.abstractCreature.ID).InfluenceLike(10f);
+                reviving.State.socialMemory.GetOrInitiateRelationship(self.abstractCreature.ID).InfluenceTempLike(10f);
+                reviving.State.socialMemory.GetOrInitiateRelationship(self.abstractCreature.ID).InfluenceKnow(0.5f);
+            }
 
             data.StartCompression();
             self.AerobicIncrease(0.5f);
@@ -431,8 +433,8 @@ sealed class Plugin : BaseUnityPlugin
         orig(self, sLeaser, rCam, timeStacker, camPos);
 
         if (self.player.grabbedBy.Count == 1 && self.player.grabbedBy[0].grabber is Player medic && CanRevive(medic, self.player) && Data(medic).animTime >= 0) {
-            sLeaser.sprites[9].y += self.RenderAsPup ? 4 : 6;
-            sLeaser.sprites[3].rotation -= 35 * Mathf.Sign(sLeaser.sprites[3].rotation);
+            sLeaser.sprites[9].y += 6;
+            sLeaser.sprites[3].rotation -= 50 * Mathf.Sign(sLeaser.sprites[3].rotation);
             sLeaser.sprites[3].scaleX *= -1;
             sLeaser.sprites[3].MoveInFrontOfOtherNode(sLeaser.sprites[6]);
         }
