@@ -5,6 +5,7 @@ sealed class PlayerData
     public int animTime;
     public float compressionDepth; // serves as an indicator for how effective the compression was
 
+    public float waterInLungs;
     public int compressionsUntilBreath;
     public int lastCompression; // clock
     public int deaths;

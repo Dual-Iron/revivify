@@ -2,6 +2,7 @@
 using Mono.Cecil.Cil;
 using MonoMod.Cil;
 using MonoMod.RuntimeDetour;
+using RWCustom;
 using System;
 using System.Linq;
 using System.Runtime.CompilerServices;
@@ -47,8 +48,8 @@ sealed class Plugin : BaseUnityPlugin
         Data(self).deaths++;
         Data(self).deathTime = 0;
 
-        self.stun = 20;
-        self.airInLungs = 0;
+        self.stun = 10;
+        self.airInLungs = 0.7f;
         self.lungsExhausted = true;
         self.exhausted = true;
         self.aerobicLevel = 1;
@@ -69,7 +70,8 @@ sealed class Plugin : BaseUnityPlugin
         On.RainWorld.OnModsInit += RainWorld_OnModsInit;
 
         new Hook(typeof(Player).GetMethod("get_Malnourished"), getMalnourished);
-        On.Player.Update += UpdateLife;
+        On.Player.Die += Player_Die;
+        On.Player.Update += UpdatePlr;
         On.Creature.Violence += ReduceLife;
         On.Player.CanEatMeat += DontEatPlayers;
         On.Player.GraphicsModuleUpdated += DontMoveWhileReviving;
@@ -91,7 +93,15 @@ sealed class Plugin : BaseUnityPlugin
         return orig(self) || Data(self).deaths >= Options.DeathsUntilExhaustion.Value;
     };
 
-    private void UpdateLife(On.Player.orig_Update orig, Player self, bool eu)
+    private void Player_Die(On.Player.orig_Die orig, Player self)
+    {
+        if (!self.dead && (self.drown > 0.25f || self.rainDeath > 0.25f)) {
+            Data(self).waterInLungs = 1;
+        }
+        orig(self);
+    }
+
+    private void UpdatePlr(On.Player.orig_Update orig, Player self, bool eu)
     {
         orig(self, eu);
 
@@ -117,7 +127,24 @@ sealed class Plugin : BaseUnityPlugin
 
             death = Mathf.Clamp(death, -1, 1);
         }
-        
+        else if (Data(self).waterInLungs > 0 && UnityEngine.Random.value < 1 / 40f && self.Consious) {
+            Data(self).waterInLungs -= UnityEngine.Random.value / 4f;
+
+            G(self).breath = Mathf.PI;
+
+            self.Stun(5);
+            self.Blink(10);
+            self.airInLungs = 0;
+            self.firstChunk.pos += self.firstChunk.Rotation * 3;
+
+            int amount = UnityEngine.Random.Range(3, 6);
+            for (int i = 0; i < amount; i++) {
+                Vector2 dir = Custom.RotateAroundOrigo(self.firstChunk.Rotation, -40f + 80f * UnityEngine.Random.value);
+
+                self.room.AddObject(new WaterDrip(self.firstChunk.pos + dir * 30, dir * (3 + 6 * UnityEngine.Random.value), true));
+            }
+        }
+
         if (Data(self).deaths >= Options.DeathsUntilExhaustion.Value) {
             self.slugcatStats.malnourished = true;
         }
@@ -269,6 +296,17 @@ sealed class Plugin : BaseUnityPlugin
             if (data.compressionDepth > 4) self.Blink(6);
             revivingData.deathTime -= healing * Options.ReviveSpeed.Value;
             revivingData.lastCompression = self.room.game.clock;
+
+            if (revivingData.waterInLungs > 0) {
+                revivingData.waterInLungs -= healing * 0.34f;
+
+                float amount = data.compressionDepth * 0.5f + UnityEngine.Random.value - 0.5f;
+                for (int i = 0; i < amount; i++) {
+                    Vector2 dir = Custom.RotateAroundOrigo(new Vector2(0, 1), -30f + 60f * UnityEngine.Random.value);
+
+                    reviving.room.AddObject(new WaterDrip(reviving.firstChunk.pos + dir * 10, dir * (2 + 4 * UnityEngine.Random.value), true));
+                }
+            }
         }
 
         AnimationStage stage = data.Stage();
