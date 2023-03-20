@@ -2,7 +2,6 @@
 using Mono.Cecil.Cil;
 using MonoMod.Cil;
 using MonoMod.RuntimeDetour;
-using RWCustom;
 using System;
 using System.Linq;
 using System.Runtime.CompilerServices;
@@ -16,7 +15,10 @@ using UnityEngine;
 
 namespace Revivify;
 
-[BepInPlugin("com.dual.revivify", "Revivify", "1.0.0")]
+// TODO: make it look like the being-revived player is on their back
+// TODO: let slugpups revive you
+
+[BepInPlugin("com.dual.revivify", "Revivify", "0.1.0")]
 sealed class Plugin : BaseUnityPlugin
 {
     static readonly ConditionalWeakTable<Player, PlayerData> cwt = new();
@@ -45,14 +47,15 @@ sealed class Plugin : BaseUnityPlugin
         Data(self).deaths++;
         Data(self).deathTime = 0;
 
-        self.stun = 5;
+        self.stun = 20;
+        self.airInLungs = 0;
         self.lungsExhausted = true;
         self.exhausted = true;
         self.aerobicLevel = 1;
 
         self.room.AddObject(new CreatureSpasmer(self, false, 20));
 
-        self.playerState.permanentDamageTracking = Math.Min(0.9, Data(self).deaths * 0.3);
+        self.playerState.permanentDamageTracking = Mathf.Clamp01((float)Data(self).deaths / Options.DeathsUntilExhaustion.Value) * 0.6;
         self.playerState.alive = true;
         self.playerState.permaDead = false;
         self.dead = false;
@@ -63,7 +66,8 @@ sealed class Plugin : BaseUnityPlugin
 
     public void OnEnable()
     {
-        On.RainWorld.Update += RainWorld_Update;
+        On.RainWorld.OnModsInit += RainWorld_OnModsInit;
+
         new Hook(typeof(Player).GetMethod("get_Malnourished"), getMalnourished);
         On.Player.Update += UpdateLife;
         On.Creature.Violence += ReduceLife;
@@ -76,18 +80,15 @@ sealed class Plugin : BaseUnityPlugin
         On.SlugcatHand.Update += SlugcatHand_Update;
     }
 
-    private void RainWorld_Update(On.RainWorld.orig_Update orig, RainWorld self)
+    private void RainWorld_OnModsInit(On.RainWorld.orig_OnModsInit orig, RainWorld self)
     {
-        try {
-            orig(self);
-        }
-        catch (Exception e) {
-            Logger.LogError(e);
-        }
+        orig(self);
+
+        MachineConnector.SetRegisteredOI("revivify", new Options());
     }
 
     private readonly Func<Func<Player, bool>, Player, bool> getMalnourished = (orig, self) => {
-        return orig(self) || Data(self).deaths > 1;
+        return orig(self) || Data(self).deaths >= Options.DeathsUntilExhaustion.Value;
     };
 
     private void UpdateLife(On.Player.orig_Update orig, Player self, bool eu)
@@ -117,7 +118,7 @@ sealed class Plugin : BaseUnityPlugin
             death = Mathf.Clamp(death, -1, 1);
         }
         
-        if (Data(self).deaths > 1) {
+        if (Data(self).deaths >= Options.DeathsUntilExhaustion.Value) {
             self.slugcatStats.malnourished = true;
         }
     }
@@ -266,22 +267,20 @@ sealed class Plugin : BaseUnityPlugin
                 _ => 1f
             };
             if (data.compressionDepth > 4) self.Blink(6);
-            revivingData.deathTime -= healing;
+            revivingData.deathTime -= healing * Options.ReviveSpeed.Value;
             revivingData.lastCompression = self.room.game.clock;
         }
 
         AnimationStage stage = data.Stage();
 
-        if (!self.playerState.isPup) {
-            if (stage is AnimationStage.Prepared or AnimationStage.CompressionRest) {
-                self.bodyChunkConnections[0].distance = 14;
-            }
-            if (stage is AnimationStage.CompressionDown) {
-                self.bodyChunkConnections[0].distance = 13 - data.compressionDepth;
-            }
-            if (stage is AnimationStage.CompressionUp) {
-                self.bodyChunkConnections[0].distance = Mathf.Lerp(13 - data.compressionDepth, 15, (data.animTime - 3) / 2f);
-            }
+        if (stage is AnimationStage.Prepared or AnimationStage.CompressionRest) {
+            self.bodyChunkConnections[0].distance = 14;
+        }
+        if (stage is AnimationStage.CompressionDown) {
+            self.bodyChunkConnections[0].distance = 13 - data.compressionDepth;
+        }
+        if (stage is AnimationStage.CompressionUp) {
+            self.bodyChunkConnections[0].distance = Mathf.Lerp(13 - data.compressionDepth, 15, (data.animTime - 3) / 2f);
         }
 
         if (data.animTime > 0) {
@@ -304,7 +303,7 @@ sealed class Plugin : BaseUnityPlugin
 
         PlayerData data = Data(self.player);
 
-        float visualDecay = Mathf.Max(Mathf.Clamp01(data.deathTime), Mathf.Min(2, data.deaths) * 0.3f);
+        float visualDecay = Mathf.Max(Mathf.Clamp01(data.deathTime), Mathf.Clamp01((float)data.deaths / Options.DeathsUntilExhaustion.Value) * 0.6f);
         if (self.malnourished < visualDecay) {
             self.malnourished = visualDecay;
         }

@@ -1,10 +1,10 @@
 ﻿{
   "id": "revivify",
   "name": "Revivify",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "authors": "Dual",
   "target_game_version": "v1.9",
-  "description": "Revive slugcat corpses by laying them flat on a solid floor and pressing GRAB rhythmically. Returning from death's door is an ordeal, so bring them back quickly!<LINE><LINE>Works in co-op, in arena, and on pups. Code at github.com/Dual-Iron/revivify",
+  "description": "Revive slugcat and slugpup corpses! This mod works in singleplayer, co-op, and arena.<LINE><LINE>Lay your friend flat on a solid floor and tap GRAB twice per second to resuscitate them. Returning from death's door is an ordeal, so they may remain injured for the rest of the cycle.<LINE><LINE>Configurable. Code at github.com/Dual-Iron/revivify",
   "tags": [ "Accessibility", "Creatures", "Game Mechanics" ],
   "youtube_trailer_id": "qxvan-dO94I",
   "requirements": [],
