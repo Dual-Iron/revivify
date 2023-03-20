@@ -16,8 +16,6 @@ using UnityEngine;
 
 namespace Revivify;
 
-// TODO: make it look like the being-revived player is on their back
-
 [BepInPlugin("com.dual.revivify", "Revivify", "0.1.0")]
 sealed class Plugin : BaseUnityPlugin
 {
@@ -28,7 +26,7 @@ sealed class Plugin : BaseUnityPlugin
 
     private static Vector2 HeartPos(Player player)
     {
-        return Vector2.Lerp(player.firstChunk.pos, player.bodyChunks[1].pos, 0.35f) + new Vector2(0, 0.7f * player.firstChunk.rad);
+        return Vector2.Lerp(player.firstChunk.pos, player.bodyChunks[1].pos, 0.38f) + new Vector2(0, 0.7f * player.firstChunk.rad);
     }
 
     private static bool CanRevive(Player medic, Player reviving)
@@ -48,11 +46,10 @@ sealed class Plugin : BaseUnityPlugin
         Data(self).deathTime = 0;
 
         self.stun = 20;
-        self.airInLungs = 0.1f;
+        self.airInLungs = 0.8f;
+        self.lungsExhausted = true;
         self.exhausted = true;
         self.aerobicLevel = 1;
-
-        self.room.AddObject(new CreatureSpasmer(self, false, 20));
 
         self.playerState.permanentDamageTracking = Mathf.Clamp01((float)Data(self).deaths / Options.DeathsUntilExhaustion.Value) * 0.6;
         self.playerState.alive = true;
@@ -78,6 +75,7 @@ sealed class Plugin : BaseUnityPlugin
         IL.Player.GrabUpdate += Player_GrabUpdate;
 
         On.PlayerGraphics.Update += PlayerGraphics_Update;
+        IL.PlayerGraphics.DrawSprites += ChangeHeadSprite;
         On.PlayerGraphics.DrawSprites += PlayerGraphics_DrawSprites;
         On.SlugcatHand.Update += SlugcatHand_Update;
     }
@@ -405,9 +403,41 @@ sealed class Plugin : BaseUnityPlugin
         }
     }
 
+    private void ChangeHeadSprite(ILContext il)
+    {
+        try {
+            ILCursor cursor = new(il);
+
+            // Move after num11 check and ModManager.MSC
+            cursor.GotoNext(MoveType.Before, i => i.MatchCall<PlayerGraphics>("get_RenderAsPup"));
+            cursor.Emit(OpCodes.Ldarg_0);
+            cursor.Emit(OpCodes.Ldloca, il.Body.Variables[9]);
+            cursor.EmitDelegate(ChangeHead);
+        }
+        catch (Exception e) {
+            Logger.LogError(e);
+        }
+    }
+
+    private void ChangeHead(PlayerGraphics self, ref int headNum)
+    {
+        if (self.player.grabbedBy.Count == 1 && self.player.grabbedBy[0].grabber is Player medic && CanRevive(medic, self.player) && Data(medic).animTime >= 0) {
+            headNum = 7;
+        }
+    }
+
     private void PlayerGraphics_DrawSprites(On.PlayerGraphics.orig_DrawSprites orig, PlayerGraphics self, RoomCamera.SpriteLeaser sLeaser, RoomCamera rCam, float timeStacker, Vector2 camPos)
     {
         orig(self, sLeaser, rCam, timeStacker, camPos);
+
+        if (self.player.grabbedBy.Count == 1 && self.player.grabbedBy[0].grabber is Player medic && CanRevive(medic, self.player) && Data(medic).animTime >= 0) {
+            sLeaser.sprites[9].y += self.RenderAsPup ? 4 : 6;
+            sLeaser.sprites[3].scaleX *= -1;
+            sLeaser.sprites[3].MoveInFrontOfOtherNode(sLeaser.sprites[6]);
+        }
+        else {
+            sLeaser.sprites[3].MoveInFrontOfOtherNode(sLeaser.sprites[2]);
+        }
 
         if (sLeaser.sprites[9].element.name == "FaceDead" && Data(self.player).deathTime < -0.6f) {
             sLeaser.sprites[9].element = Futile.atlasManager.GetElementWithName("FaceStunned");
