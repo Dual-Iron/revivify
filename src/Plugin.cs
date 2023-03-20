@@ -16,7 +16,7 @@ using UnityEngine;
 
 namespace Revivify;
 
-[BepInPlugin("com.dual.revivify", "Revivify", "0.2.0")]
+[BepInPlugin("com.dual.revivify", "Revivify", "0.3.0")]
 sealed class Plugin : BaseUnityPlugin
 {
     static readonly ConditionalWeakTable<Player, PlayerData> cwt = new();
@@ -46,8 +46,7 @@ sealed class Plugin : BaseUnityPlugin
         Data(self).deathTime = 0;
 
         self.stun = 20;
-        self.airInLungs = 0.8f;
-        self.lungsExhausted = true;
+        self.airInLungs = 0.1f;
         self.exhausted = true;
         self.aerobicLevel = 1;
 
@@ -162,6 +161,7 @@ sealed class Plugin : BaseUnityPlugin
             self.Stun(5);
             self.Blink(10);
             self.airInLungs = 0;
+            self.lungsExhausted = true;
             self.firstChunk.pos += self.firstChunk.Rotation * 3;
 
             int amount = UnityEngine.Random.Range(3, 6);
@@ -432,6 +432,7 @@ sealed class Plugin : BaseUnityPlugin
 
         if (self.player.grabbedBy.Count == 1 && self.player.grabbedBy[0].grabber is Player medic && CanRevive(medic, self.player) && Data(medic).animTime >= 0) {
             sLeaser.sprites[9].y += self.RenderAsPup ? 4 : 6;
+            sLeaser.sprites[3].rotation -= 35 * Mathf.Sign(sLeaser.sprites[3].rotation);
             sLeaser.sprites[3].scaleX *= -1;
             sLeaser.sprites[3].MoveInFrontOfOtherNode(sLeaser.sprites[6]);
         }
