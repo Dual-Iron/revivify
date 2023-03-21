@@ -16,7 +16,7 @@ using UnityEngine;
 
 namespace Revivify;
 
-[BepInPlugin("com.dual.revivify", "Revivify", "0.4.0")]
+[BepInPlugin("com.dual.revivify", "Revivify", "1.0.0")]
 sealed class Plugin : BaseUnityPlugin
 {
     static readonly ConditionalWeakTable<Player, PlayerData> cwt = new();
@@ -61,6 +61,7 @@ sealed class Plugin : BaseUnityPlugin
 
     public void OnEnable()
     {
+        On.RainWorld.Update += ErrorCatch;
         On.RainWorld.OnModsInit += RainWorld_OnModsInit;
 
         new Hook(typeof(Player).GetMethod("get_Malnourished"), getMalnourished);
@@ -73,10 +74,25 @@ sealed class Plugin : BaseUnityPlugin
         On.Player.GraphicsModuleUpdated += DontMoveWhileReviving;
         IL.Player.GrabUpdate += Player_GrabUpdate;
 
+        // Fixes corpse being dropped when pressing Grab
+        On.Player.GrabUpdate += FixHeavyCarry;
+        On.Player.HeavyCarry += FixHeavyCarry;
+
         On.PlayerGraphics.Update += PlayerGraphics_Update;
         IL.PlayerGraphics.DrawSprites += ChangeHeadSprite;
         On.PlayerGraphics.DrawSprites += PlayerGraphics_DrawSprites;
         On.SlugcatHand.Update += SlugcatHand_Update;
+    }
+
+    private void ErrorCatch(On.RainWorld.orig_Update orig, RainWorld self)
+    {
+        try {
+            orig(self);
+        }
+        catch (Exception e) {
+            Logger.LogError(e);
+            throw;
+        }
     }
 
     private void RainWorld_OnModsInit(On.RainWorld.orig_OnModsInit orig, RainWorld self)
@@ -92,7 +108,7 @@ sealed class Plugin : BaseUnityPlugin
 
     private bool Player_CanIPutDeadSlugOnBack(On.Player.orig_CanIPutDeadSlugOnBack orig, Player self, Player pickUpCandidate)
     {
-        return orig(self, pickUpCandidate) || (pickUpCandidate != null && !Data(pickUpCandidate).Expired);
+        return orig(self, pickUpCandidate) || (pickUpCandidate != null && self.slugOnBack != null && !Data(pickUpCandidate).Expired);
     }
 
     private void Player_ctor(On.Player.orig_ctor orig, Player self, AbstractCreature abstractCreature, World world)
@@ -312,6 +328,22 @@ sealed class Plugin : BaseUnityPlugin
         }
 
         return false;
+    }
+
+    private static bool disableHeavyCarry = false;
+    private void FixHeavyCarry(On.Player.orig_GrabUpdate orig, Player self, bool eu)
+    {
+        try {
+            disableHeavyCarry = true;
+            orig(self, eu);
+        }
+        finally {
+            disableHeavyCarry = false;
+        }
+    }
+    private bool FixHeavyCarry(On.Player.orig_HeavyCarry orig, Player self, PhysicalObject obj)
+    {
+        return !(disableHeavyCarry && obj is Player p && CanRevive(self, p)) && orig(self, obj);
     }
 
     private static void Compression(Player self, int grasp, PlayerData data, Player reviving, PlayerData revivingData, int difference)

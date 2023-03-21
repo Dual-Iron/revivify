@@ -1,12 +1,12 @@
 ﻿{
   "id": "revivify",
   "name": "Revivify",
-  "version": "0.4.0",
+  "version": "1.0.0",
   "authors": "Dual",
   "target_game_version": "v1.9",
-  "description": "Revive slugcat and slugpup corpses! Lay your friend flat on a solid floor and tap GRAB twice per second to resuscitate them. Returning from death's door is an ordeal, so take care of them afterwards.<LINE><LINE>Configurable. Art by twitter.com/GarbageWastes and code at github.com/Dual-Iron/revivify",
+  "description": "Revive slugcat and slugpup corpses, in co-op or not! Lay your friend flat on a solid floor and tap GRAB twice per second to resuscitate them. Returning from death's door is an ordeal, so take care of them afterwards.<LINE><LINE>Configurable. Art by twitter.com/GarbageWastes and code at github.com/Dual-Iron/revivify",
   "tags": [ "Accessibility", "Creatures", "Game Mechanics" ],
-  "youtube_trailer_id": "qxvan-dO94I",
+  "youtube_trailer_id": "2SoDvI7ciUY",
   "requirements": [],
   "requirements_names": [],
   "checksum_override_version": false
