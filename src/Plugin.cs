@@ -16,7 +16,7 @@ using UnityEngine;
 
 namespace Revivify;
 
-[BepInPlugin("com.dual.revivify", "Revivify", "1.0.0")]
+[BepInPlugin("com.dual.revivify", "Revivify", "1.0.1")]
 sealed class Plugin : BaseUnityPlugin
 {
     static readonly ConditionalWeakTable<Player, PlayerData> cwt = new();
@@ -186,9 +186,29 @@ sealed class Plugin : BaseUnityPlugin
                 self.room.AddObject(new WaterDrip(self.firstChunk.pos + dir * 30, dir * (3 + 6 * UnityEngine.Random.value), true));
             }
         }
+        else {
+            Data(self).deathTime = 0;
+        }
 
         if (Data(self).deaths >= Options.DeathsUntilExhaustion.Value) {
-            self.slugcatStats.malnourished = true;
+            if (self.aerobicLevel >= 1f) {
+                Data(self).exhausted = true;
+            }
+            else if (self.aerobicLevel < 0.3f) {
+                Data(self).exhausted = false;
+            }
+            if (Data(self).exhausted) {
+                self.slowMovementStun = Math.Max(self.slowMovementStun, (int)Custom.LerpMap(self.aerobicLevel, 0.7f, 0.4f, 6f, 0f));
+                if (self.aerobicLevel > 0.9f && UnityEngine.Random.value < 0.04f) {
+                    self.Stun(10);
+                }
+                if (self.aerobicLevel > 0.9f && UnityEngine.Random.value < 0.1f) {
+                    self.standing = false;
+                }
+                if (!(self.lungsExhausted && self.animation != Player.AnimationIndex.SurfaceSwim)) {
+                    self.swimCycle += 0.05f;
+                }
+            }
         }
     }
 
@@ -479,10 +499,6 @@ sealed class Plugin : BaseUnityPlugin
             sLeaser.sprites[9].y += 6;
             sLeaser.sprites[3].rotation -= 50 * Mathf.Sign(sLeaser.sprites[3].rotation);
             sLeaser.sprites[3].scaleX *= -1;
-            sLeaser.sprites[3].MoveInFrontOfOtherNode(sLeaser.sprites[6]);
-        }
-        else {
-            sLeaser.sprites[3].MoveInFrontOfOtherNode(sLeaser.sprites[2]);
         }
 
         if (sLeaser.sprites[9].element.name == "FaceDead" && Data(self.player).deathTime < -0.6f) {
