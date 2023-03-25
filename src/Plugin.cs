@@ -16,7 +16,7 @@ using UnityEngine;
 
 namespace Revivify;
 
-[BepInPlugin("com.dual.revivify", "Revivify", "1.0.1")]
+[BepInPlugin("com.dual.revivify", "Revivify", "1.1.0")]
 sealed class Plugin : BaseUnityPlugin
 {
     static readonly ConditionalWeakTable<Player, PlayerData> cwt = new();
@@ -31,7 +31,8 @@ sealed class Plugin : BaseUnityPlugin
 
     private static bool CanRevive(Player medic, Player reviving)
     {
-        if (reviving.playerState.permaDead || !reviving.dead || reviving.grabbedBy.Count > 1 || reviving.Submersion > 0 || reviving.onBack != null || Data(reviving).Expired
+        if (reviving.playerState.permaDead || !reviving.dead || reviving.grabbedBy.Count > 1 || reviving.Submersion > 0 || reviving.onBack != null
+            || Data(reviving).Expired || Data(reviving).revivals + 1 >= Options.DeathsUntilExpire.Value
             || !medic.Consious || medic.grabbedBy.Count > 0 || medic.Submersion > 0 || medic.exhausted || medic.lungsExhausted || medic.gourmandExhausted) {
             return false;
         }
@@ -42,7 +43,7 @@ sealed class Plugin : BaseUnityPlugin
 
     private static void RevivePlayer(Player self)
     {
-        Data(self).deaths++;
+        Data(self).revivals++;
         Data(self).deathTime = 0;
 
         self.stun = 20;
@@ -50,7 +51,7 @@ sealed class Plugin : BaseUnityPlugin
         self.exhausted = true;
         self.aerobicLevel = 1;
 
-        self.playerState.permanentDamageTracking = Mathf.Clamp01((float)Data(self).deaths / Options.DeathsUntilExhaustion.Value) * 0.6;
+        self.playerState.permanentDamageTracking = Mathf.Clamp01((float)Data(self).revivals / Options.DeathsUntilExhaustion.Value) * 0.6;
         self.playerState.alive = true;
         self.playerState.permaDead = false;
         self.dead = false;
@@ -103,7 +104,7 @@ sealed class Plugin : BaseUnityPlugin
     }
 
     private readonly Func<Func<Player, bool>, Player, bool> getMalnourished = (orig, self) => {
-        return orig(self) || Data(self).deaths >= Options.DeathsUntilExhaustion.Value;
+        return orig(self) || Data(self).revivals >= Options.DeathsUntilExhaustion.Value;
     };
 
     private bool Player_CanIPutDeadSlugOnBack(On.Player.orig_CanIPutDeadSlugOnBack orig, Player self, Player pickUpCandidate)
@@ -135,7 +136,7 @@ sealed class Plugin : BaseUnityPlugin
         const int ticksToDie = 40 * 30; // 30 seconds
         const int ticksToRevive = 40 * 10; // 10 seconds
 
-        if (self.isSlugpup && Data(self).deaths >= Options.DeathsUntilComa.Value) {
+        if (self.isSlugpup && Data(self).revivals >= Options.DeathsUntilComa.Value) {
             self.stun = 100;
         }
 
@@ -190,7 +191,7 @@ sealed class Plugin : BaseUnityPlugin
             Data(self).deathTime = 0;
         }
 
-        if (Data(self).deaths >= Options.DeathsUntilExhaustion.Value) {
+        if (Data(self).revivals >= Options.DeathsUntilExhaustion.Value) {
             if (self.aerobicLevel >= 1f) {
                 Data(self).exhausted = true;
             }
@@ -436,7 +437,7 @@ sealed class Plugin : BaseUnityPlugin
 
         PlayerData data = Data(self.player);
 
-        float visualDecay = Mathf.Max(Mathf.Clamp01(data.deathTime), Mathf.Clamp01((float)data.deaths / Options.DeathsUntilExhaustion.Value) * 0.6f);
+        float visualDecay = Mathf.Max(Mathf.Clamp01(data.deathTime), Mathf.Clamp01((float)data.revivals / Options.DeathsUntilExhaustion.Value) * 0.6f);
         if (self.malnourished < visualDecay) {
             self.malnourished = visualDecay;
         }

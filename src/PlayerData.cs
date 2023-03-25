@@ -11,7 +11,7 @@ sealed class PlayerData
     public float waterInLungs;
     public int compressionsUntilBreath;
     public int lastCompression; // clock
-    public int deaths;
+    public int revivals;
     public float deathTime; // Ranges from -1 to 1 and starts at 0
 
     public bool Expired => expireTime > Options.CorpseExpiryTime.Value * 60 * 40;
