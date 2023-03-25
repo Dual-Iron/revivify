@@ -69,6 +69,7 @@ sealed class Plugin : BaseUnityPlugin
         On.Player.CanIPutDeadSlugOnBack += Player_CanIPutDeadSlugOnBack;
         On.Player.ctor += Player_ctor;
         On.Player.Die += Player_Die;
+        On.HUD.FoodMeter.GameUpdate += FixFoodMeter;
         On.Player.Update += UpdatePlr;
         On.Creature.Violence += ReduceLife;
         On.Player.CanEatMeat += DontEatPlayers;
@@ -127,6 +128,15 @@ sealed class Plugin : BaseUnityPlugin
             Data(self).waterInLungs = 1;
         }
         orig(self);
+    }
+
+    private void FixFoodMeter(On.HUD.FoodMeter.orig_GameUpdate orig, HUD.FoodMeter self)
+    {
+        orig(self);
+
+        if (self.IsPupFoodMeter) {
+            self.survivalLimit = self.pup.slugcatStats.foodToHibernate;
+        }
     }
 
     private void UpdatePlr(On.Player.orig_Update orig, Player self, bool eu)
@@ -192,6 +202,9 @@ sealed class Plugin : BaseUnityPlugin
         }
 
         if (Data(self).revivals >= Options.DeathsUntilExhaustion.Value) {
+            if (self.isSlugpup) {
+                self.slugcatStats.foodToHibernate = self.slugcatStats.maxFood;
+            }
             if (self.aerobicLevel >= 1f) {
                 Data(self).exhausted = true;
             }
